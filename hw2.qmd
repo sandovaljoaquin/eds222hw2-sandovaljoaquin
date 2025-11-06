@@ -1,6 +1,7 @@
 ---
 title: "EDS 222: Homework 2"
-author: "Your Name Here"
+author: "Joaquin Sandoval"
+date: 11/6/2025
 ---
 
 ## Goals
@@ -18,6 +19,7 @@ In this homework you will:
 #| message: false
 
 library(tidyverse)
+library(dplyr)
 set.seed(123)
 theme_set(theme_bw(14))
 
@@ -33,15 +35,52 @@ From a coding perspective, make your lake population should a data frame with on
 
 ```{r}
 #| label: sim-pop
+#| 
+# Define the population 
+
+beta0 <- 800
+beta1 <- -2.5
+sigma <- 120
+
+lake_trout <- rnorm(100000, mean = 100, sd = 20)
+
+cut_throat_trout <- rnorm(100000, mean = beta0 + beta1* lake_trout, sd = sigma)
+
+# Making data frame 
+
+trout_df <- tibble(lake_trout, cut_throat_trout)
 
 ```
 
-```{r}
+```{r, message = FALSE}
+
 #| label: fig-pop
+ggplot(trout_df, 
+       aes(lake_trout, cut_throat_trout)) + 
+  geom_point(color = "dodgerblue") + 
+  geom_smooth(method = "lm", 
+              color = "salmon") + 
+  labs(x = "Number of Lake Trout", 
+       y = "Number of Cutthroat Trout", 
+       title = "Effect of Lake Trout on Cutthroat Trout Abundance") + 
+  theme(plot.title = element_text(hjust = .85))
 
 ```
 
 From this population, draw three samples with 30 observations each. Call them `lake_spl1`, `lake_spl2`, and `lake_spl3`.
+
+```{r}
+# Draw 
+lake_spl1 <- trout_df  |> 
+  sample_n(30)
+
+lake_spl2 <- trout_df  |> 
+  sample_n(30)
+
+lake_spl3 <- trout_df  |> 
+  sample_n(30)
+
+```
 
 **What's the coefficient for the effect of lake trout on cutthroat trout in your population? What is it in each of your three samples?**
 
@@ -49,6 +88,20 @@ Use `lm()` to estimate each of the coefficients.
 
 ```{r}
 #| label: pop-spl-coefs
+
+# Estimating effect of lake trout on cutthroat in population 
+
+population_lm <- lm(lake_trout ~ cut_throat_trout, trout_df)
+print(paste("Population B1:", population_lm$coefficients[2]))
+
+lake_spl1_lm <- lm(lake_trout ~ cut_throat_trout, lake_spl1)
+print(paste("Sample 1 B1:", lake_spl1_lm$coefficients[2]))
+
+lake_spl2_lm <- lm(lake_trout ~ cut_throat_trout, lake_spl2)
+print(paste("Sample 2 B1:",lake_spl2_lm$coefficients[2]))
+
+lake_spl3_lm <- lm(lake_trout ~ cut_throat_trout, lake_spl3)
+print(paste("Sample 3 B1:",lake_spl3_lm$coefficients[2]))
 
 ```
 
@@ -89,9 +142,53 @@ Call `p_dist` for `n`'s of 30, 50, and 100. **What fraction of the p values are 
 ```{r}
 #| label: small-n-pval
 
+# Creating p_dist function with only one input: n 
+
+p_dist <- function(n) {
+ map_dbl(1:1000, \(i) { # nesting map_dbl inside to create vector of 1000 
+
+sample <- trout_df  |> 
+  sample_n(n) 
+
+# Model drawing from sample df 
+population_lm <- lm(lake_trout ~ cut_throat_trout, sample)
+# Model summary
+population_summary <- summary(population_lm)
+# Population_summary$coefficients is the coefficient table
+population_summary$coefficients
+# Cut_throat_trout is the second coef (after the intercept) and the p
+# Value is in the fourth column.
+population_pval <- population_summary$coefficients[2, 4]
+})
+}
+
+# Call `p_dist` for `n`'s of 30, 50, and 10 sample sizes 
+
+p_dist_30 <- p_dist(30)
+
+p_dist_50 <- p_dist(50)
+
+p_dist_100 <- p_dist(100)
+
+# Which fraction of values are below 0.05 for each sample size? 
+
+# For n = 30:  
+
+print(paste("Proportion of p values less than 0.05 with sample size 30: ", sum(p_dist_30 < 0.05)/ length(p_dist_30)))
+
+# For n = 50: 
+
+print(paste("Proportion of p values less than 0.05 with sample size 50: ", sum(p_dist_50 < 0.05)/ length(p_dist_50)))
+
+# For n = 100: 
+
+print(paste("Proportion of p values less than 0.05 with sample size 100: ", sum(p_dist_100 < 0.05)/ length(p_dist_100)))
+
 ```
 
 Consider your results in the context of a lake resource manager. This resource manager is trying to decide if increasing lake trout abundances are causing a decline in cutthroat trout. They collect data from thirty lakes, fit a linear model, and find a p value for the coefficient of lake trout of 0.11. The manager says "With a p value this high, I don't think lake trout are causing the decline." **How would you respond to the manager's interpretation?**
+
+**The lake resource manager is correct in stating the p value from this linear model is not significant; they failed to reject the null hypothesis that lake trout cause a significant decline in cutthroat trout. In the above code, it was shown that with an increase in sample size, the proportion of p values lower than the critical threshold of 0.05 increases. I would advise that these results could be due to the small sample size that was used in their research effort and to collect data from 50 lakes and reassess the results.**
 
 ## How much do lake trout affect cutthroat trout?
 
@@ -109,8 +206,38 @@ Then, repeat this process for a smaller sample size. Draw `small_sample` with 30
 
 **Compare the CIs for the two samples. How did the width of the CI change from the large to the small sample?**
 
+The width of the Confidence Interval increased from the large to the small sample. With a larger sample.
+
+CI for n = 100 : -2.680960 -2.101682 CI for n = 30 : -4.196025 -3.479489
+
 ```{r}
 #| label: boot-beta1
+
+big_sample <- trout_df |> 
+  sample_n(100)
+
+big_boot <- map_dbl(1:1000, \(i) { 
+  big_boot_sample <- big_sample |> 
+    sample_n(1000, replace = TRUE)
+  big_sample_lm <- lm(cut_throat_trout ~ lake_trout, big_boot_sample)
+big_sample_summary <- summary(big_sample_lm)
+coefficient <- big_sample_summary$coefficients[2,1]
+  })
+
+quantile(big_boot, c(0.025, 0.975))
+
+small_sample <- trout_df |> 
+  sample_n(30)
+
+small_boot <- map_dbl(1:1000, \(i) { 
+  small_boot_sample <- small_sample |> 
+    sample_n(1000, replace = TRUE)
+  small_sample_lm <- lm(cut_throat_trout ~ lake_trout, small_boot_sample)
+small_sample_summary <- summary(small_sample_lm)
+coefficient <- small_sample_summary$coefficients[2,1]
+  })
+
+quantile(small_boot, c(0.025, 0.975))
 
 ```
 
@@ -134,13 +261,46 @@ Plot `big_sample` as a scatter plot. Add the best fit line and CI of the respons
 
 ```{r}
 #| label: ci-mean
+ggplot(big_sample, 
+       aes(x = lake_trout, y = cut_throat_trout)) +
+  geom_point(color = "dodgerblue") + 
+  geom_smooth(method = "lm", 
+              formula = y ~ x, 
+              se = TRUE, 
+              color = "salmon") + 
+   labs(x = "Number of Lake Trout", 
+       y = "Number of Cutthroat Trout", 
+       title = "Large Sample CI (n = 100)") + 
+  scale_x_continuous(breaks = seq(70, 120, by = 10))
+
+
+ggplot(small_sample, 
+       aes(x = lake_trout, y = cut_throat_trout)) +
+  geom_point(color = "dodgerblue") + 
+  geom_smooth(method = "lm", 
+              formula = y ~ x, 
+              se = TRUE, 
+              color = "salmon") + 
+   labs(x = "Number of Lake Trout", 
+       y = "Number of Cutthroat Trout", 
+       title = "Small Sample CI (n = 30)") 
 
 ```
 
 **What is the expected (average) abundance of cutthroat trout in a lake with 80 lake trout according to the model fit to the *larger* sample?**
 
+\~600 cutthroat troat
+
 **Same question, but according to the model fit to the *smaller* sample?**
+
+\~660 cutthroat troat
 
 **How wide are the 95% CIs for cutthroat trout abundance in lakes with 80 lake trout in both models?**
 
+Large sample: \~ 50
+
+Small sample: \~ 140
+
 **Consider the mean response in the population itself (the "true" mean response). This is the line defined by the population parameters** $\beta_0$ **and** $\beta_1$**.** **Are 95% CIs constructed from small sample models more, less, or equally likely to cover the population mean response than large sample models?**
+
+95% CIs constructed by small sample models are less likely to cover the population mean response than large sample models. Large sample CIs are less variable (wide) and have higher chance of covering the population mean response because there is more data supporting the mean response. 
